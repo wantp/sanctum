@@ -30,3 +30,149 @@ Please review [our security policy](https://github.com/laravel/sanctum/security/
 ## License
 
 Laravel Sanctum is open-sourced software licensed under the [MIT license](LICENSE.md).
+
+
+## Usage
+
+### Install
+
+add the repositories to `composer.json`
+```
+    "repositories": {
+        "laravel/sanctum": {
+            "type": "git",
+            "url": "https://github.com/wantp/sanctum.git"
+        }
+    },
+```
+
+
+### Custom Token Provider
+
+create a custom token provider like this
+
+`app/Extensions/PersonalAccessTokenProvider.php`
+```
+<?php
+
+namespace App\Extensions;
+
+use Illuminate\Support\Facades\Cache;
+use Laravel\Sanctum\Contracts\TokenProvider;
+use Laravel\Sanctum\Sanctum;
+
+class PersonalAccessTokenProvider implements TokenProvider
+{
+
+    protected $cacheByTokenPrefix = 'sanctum:token:';
+
+    protected $cacheByIdPrefix = 'santum:id:';
+
+    public function findToken($token)
+    {
+        if (strpos($token, '|') === false) {
+            return Cache::remember($this->cacheByTokenPrefix . $token, 3600, function () use ($token) {
+                return Sanctum::personalAccessTokenModel()::where('token', hash('sha256', $token))->first();
+            });
+        }
+
+        [$id, $token] = explode('|', $token, 2);
+
+        $instance = Cache::remember($this->cacheByIdPrefix . $id, 3600, function () use ($id) {
+            return Sanctum::personalAccessTokenModel()::find($id);
+        });
+
+        if ($instance) {
+            return hash_equals($instance->token, hash('sha256', $token)) ? $instance : null;
+        }
+
+        return null;
+    }
+
+    public function updateAccessTokenLastUsedAt($accessToken)
+    {
+        return $accessToken;
+    }
+}
+```
+
+set provider for Sanctum in AuthServiceProvider
+
+`app/Providers/AuthService.php`
+```
+    public function boot()
+    {
+        $this->registerPolicies();
+
+        Sanctum::setPersonalAccessTokenModelProvider(app(PersonalAccessTokenProvider::class));
+    }
+```
+
+### Custom User Provider
+
+`app/Extensions/PersonalAccessTokenProvider.php`
+```
+<?php
+
+namespace App\Extensions;
+
+use Illuminate\Auth\EloquentUserProvider;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\Cache;
+use Laravel\Sanctum\PersonalAccessToken;
+
+class UserProvider extends EloquentUserProvider
+{
+
+    protected $cachePrefix = 'user:info:';
+
+    protected $ttl = 3600;
+
+    /**
+     * Retrieve a user by their unique identifier.
+     *
+     * @param mixed $identifier
+     * @return \Illuminate\Contracts\Auth\Authenticatable|null
+     */
+    public function retrieveById($identifier)
+    {
+        return Cache::remember($this->cachePrefix . $identifier, $this->ttl, function () use ($identifier) {
+            return parent::retrieveById($identifier);
+        });
+    }
+}
+```
+
+set provider in AuthServiceProvider
+
+`app/Providers/AuthService.php`
+```
+    public function boot()
+    {
+        $this->registerPolicies();
+
+        Auth::provider('cache', function ($app, array $config) {
+            return $app->make(UserProvider::class,['model' => $config['model']]);
+        });
+    }
+```
+
+config sanctum user provider
+
+`config/auth.php`
+```
+    'guards' => [
+         ...
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'user.cache',
+        ],
+    ],
+    
+    'providers' => [
+         'user.cache' => [
+             'driver' => 'cache',
+             'model' => App\Models\User::class,
+         ],
+    ],
+```
