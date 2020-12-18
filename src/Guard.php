@@ -3,6 +3,7 @@
 namespace Laravel\Sanctum;
 
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
 
 class Guard
@@ -47,9 +48,10 @@ class Guard
      * Retrieve the authenticated user for the incoming request.
      *
      * @param  \Illuminate\Http\Request  $request
+     * @param  UserProvider  $userProvider
      * @return mixed
      */
-    public function __invoke(Request $request)
+    public function __invoke(Request $request, $userProvider)
     {
         if ($user = $this->auth->guard(config('sanctum.guard', 'web'))->user()) {
             return $this->supportsTokens($user)
@@ -58,19 +60,25 @@ class Guard
         }
 
         if ($token = $request->bearerToken()) {
-            $model = Sanctum::$personalAccessTokenModel;
-
-            $accessToken = $model::findToken($token);
+            $accessToken = Sanctum::personalAccessTokenModelProvider()->findToken($token);
 
             if (! $accessToken ||
                 ($this->expiration &&
-                 $accessToken->created_at->lte(now()->subMinutes($this->expiration))) ||
-                ! $this->hasValidProvider($accessToken->tokenable)) {
+                 $accessToken->created_at->lte(now()->subMinutes($this->expiration)))
+            ) {
                 return;
             }
 
-            return $this->supportsTokens($accessToken->tokenable) ? $accessToken->tokenable->withAccessToken(
-                tap($accessToken->forceFill(['last_used_at' => now()]))->save()
+            $tokenable = $userProvider
+                ? $userProvider->setModel($accessToken->tokenable_type)->retrieveById($accessToken->tokenable_id)
+                : $accessToken->tokenable;;
+
+            if(!$this->hasValidProvider($tokenable)){
+                return;
+            }
+
+            return $this->supportsTokens($tokenable) ? $tokenable->withAccessToken(
+                Sanctum::personalAccessTokenModelProvider()->updateAccessTokenLastUsedAt($accessToken)
             ) : null;
         }
     }

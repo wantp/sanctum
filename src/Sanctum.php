@@ -2,6 +2,8 @@
 
 namespace Laravel\Sanctum;
 
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\Contracts\TokenProvider;
 use Mockery;
 
 class Sanctum
@@ -14,6 +16,13 @@ class Sanctum
     public static $personalAccessTokenModel = 'Laravel\\Sanctum\\PersonalAccessToken';
 
     /**
+     * The personal access client provider instance.
+     *
+     * @var TokenProvider
+     */
+    protected static $personalAccessTokenProvider;
+
+    /**
      * Indicates if Sanctum's migrations will be run.
      *
      * @var bool
@@ -23,9 +32,9 @@ class Sanctum
     /**
      * Set the current user for the application with the given abilities.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable|\Laravel\Sanctum\HasApiTokens  $user
-     * @param  array  $abilities
-     * @param  string  $guard
+     * @param \Illuminate\Contracts\Auth\Authenticatable|\Laravel\Sanctum\HasApiTokens $user
+     * @param array $abilities
+     * @param string $guard
      * @return \Illuminate\Contracts\Auth\Authenticatable
      */
     public static function actingAs($user, $abilities = [], $guard = 'sanctum')
@@ -56,7 +65,7 @@ class Sanctum
     /**
      * Set the personal access token model name.
      *
-     * @param  string  $model
+     * @param string $model
      * @return void
      */
     public static function usePersonalAccessTokenModel($model)
@@ -94,5 +103,25 @@ class Sanctum
     public static function personalAccessTokenModel()
     {
         return static::$personalAccessTokenModel;
+    }
+
+    /**
+     * @param TokenProvider $provider
+     */
+    public static function setPersonalAccessTokenModelProvider(TokenProvider $provider)
+    {
+        static::$personalAccessTokenProvider = $provider;
+    }
+
+    /**
+     * @return TokenProvider|PersonalAccessTokenProvider
+     */
+    public static function personalAccessTokenModelProvider()
+    {
+        if (!static::$personalAccessTokenProvider) {
+            static::usePersonalAccessTokenModelProvider(app(PersonalAccessTokenProvider::class));
+        }
+
+        return static::$personalAccessTokenProvider;
     }
 }
